@@ -26,7 +26,7 @@ init:
 	CLR.b P6OUT 			;Clear Port 6 output
 	bis.b #01h, &P1DIR 		;P1.0 output (LED1)
 	bis.b #40h, &P6DIR 		;P6.0 output (LED2)
-	bic.w #0001h, &PM5CTL0 	;GPIO power on
+	bic.w #0001h, &PM5CTL0 		;GPIO power on
 
 main:
 	bic.b #02h, P4DIR		;button 4.1 Direction OUT
@@ -38,21 +38,21 @@ main:
 
 press:
 	bit.b #02h, &P4IN		;flag button press 4.1
-	jz delay				;exit if flag true
+	jz delay			;exit if flag true
 	bit.b #08h, &P2IN		;flag button press 2.3
-	jz delay				;exit if flag true
-	jnz press				;else loop press
+	jz delay			;exit if flag true
+	jnz press			;else loop press
 
 delay:
 	mov.w   #0FFFFh, R5		;set button delay, prevent error
 countdown:
-	dec.w   R5				;countdown release
-    jnz     countdown		;exit after cleared
+	dec.w   R5			;countdown release
+    	jnz     countdown		;exit after cleared
 
 toggle:
-	xor.b #00000001b, P1OUT ;toggle LED P1OUT
-	xor.b #01000000b, P6OUT ;toggle LED P6OUT
-	jmp main 				;repeat to main
+	xor.b #00000001b, P1OUT 	;toggle LED P1OUT
+	xor.b #01000000b, P6OUT 	;toggle LED P6OUT
+	jmp main 			;repeat to main
 
 	nop
 
