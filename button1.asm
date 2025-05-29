@@ -27,14 +27,14 @@ init:
 	bis.b #01h, &P1DIR 		;P1.0 output (LED1)
 	bis.b #40h, &P6DIR 		;P6.0 output (LED2)
 	bic.w #0001h, &PM5CTL0 		;GPIO power on
-
-main:
 	bic.b #02h, P4DIR		;button 4.1 Direction OUT
 	bis.b #02h, &P4REN		;button 4.1 Enable Pullup Res
 	bis.b #02h, &P4OUT 		;select pull up (on)
 	bic.b #08h, P2DIR		;button 2.3 Direction OUT
 	bis.b #08h, &P2REN		;button 2.3 Enable Pullup Res
 	bis.b #08h, &P2OUT 		;select pull up (on)
+
+main:
 
 press:
 	bit.b #02h, &P4IN		;flag button press 4.1
