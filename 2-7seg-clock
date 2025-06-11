@@ -1,0 +1,191 @@
+;-------------------------------------------------------------------------------
+; MSP430 Assembler Code Template for use with TI Code Composer Studio
+;
+;
+;-------------------------------------------------------------------------------
+            .cdecls C,LIST,"msp430.h"       ; Include device header file
+
+;-------------------------------------------------------------------------------
+            .def    RESET                   ; Export program entry-point to
+                                            ; make it known to linker.
+;-------------------------------------------------------------------------------
+            .text                           ; Assemble into program memory.
+            .retain                         ; Override ELF conditional linking
+                                            ; and retain current section.
+            .retainrefs                     ; And retain any sections that have
+                                            ; references to current section.
+
+;-------------------------------------------------------------------------------
+RESET       mov.w   #__STACK_END,SP         ; Initialize stackpointer
+StopWDT     mov.w   #WDTPW|WDTHOLD,&WDTCTL  ; Stop watchdog timer
+
+;-------------------------------------------------------------------------------
+; Main loop here
+;-------------------------------------------------------------------------------
+
+init:
+			;-------Set up states----------------
+			mov.b 	#00h, R4				;initialize ones count
+			mov.b 	#00h, R5				;initialize tens count
+			mov.b 	#3Fh, R6 				;initialize ones display
+			mov.b 	#3Fh, R7 				;initialize tens display
+			mov.b 	#03h, &P6DIR			;initialize 8,9 pins
+			bis.b 	#BIT6, &P6DIR				;LED display
+			mov.b 	#01h, &P6OUT			;initialize 8,9 pins xor enable
+			mov.b 	#0FFh, &P1DIR 			;initialize P1 direction state
+			mov.b 	R6, &P1OUT				;initialize P1 out state
+			bic.b 	#LOCKLPM5, &PM5CTL0		;enable conditions
+
+			;---------Set up timer block----------			;;NO MODIFICATIONS HAVE BEEN MADE TO CLOCK YET -- NEED TO TURN 2 SEC to 1 SEC;;
+			bis.w	#TBCLR, &TB0CTL				; we set the clear bit in the control register
+			bis.w	#TBSSEL__ACLK, &TB0CTL		;we select ACLK as source
+			bis.w   #CNTL__16, &TB0CTL
+			bis.w   #ID_1, &TB0CTL
+			bis.w	#MC__CONTINUOUS, &TB0CTL	;We select continuos mode counting
+			mov.w 	#0xC000, &TB0R
+			;---------interrupt conditions--------
+			bis.w #TBIE, &TB0CTL ;We enable interrupt on overflow
+		nop
+			bis.w #GIE, SR ; we enable maskable interrupts
+		nop
+
+main:
+			mov.b 	#0FFh, R9		;add a value for the time between switching displays
+			xor.b 	#03h, &P6OUT 	;xor between 7-seg dispalys
+			mov.b 	R6, &P1OUT 		;move ones place value to out
+delay1:								;decrement value for display time
+			dec.b	R9
+			jnz		delay1
+			;end delay 1
+			mov.b 	#0FFh, R9		;add a value for the time between switching displays
+			xor.b 	#03h, &P6OUT
+			mov.b 	R7, &P1OUT 		;move tens place value to out
+
+delay2:								;decrement value for display time
+			dec.b	R9
+			jnz		delay2
+			;end delay 2
+			bit.b #BIT1, R8			;flag update bit
+			jnz count_ones			;update count if flag true
+			jmp main
+
+ISR_TB0:
+			mov.w 	#0xC000, &TB0R
+			xor.b #BIT6, &P6OUT 	;LED toggle
+			bis.b #BIT1, R8			;set update bit to true
+			bic.w #TBIFG, &TB0CTL 	;clear the interrupt flag
+			reti					;return from interrupt
+
+count_ones:					;track ones place
+		inc R4				;use R4 to count display next value in hex
+			cmp.b #01h, R4	;each flags to compare the current value and jumps to a function that moves the new value in
+			jeq ones_0
+			cmp.b #02h, R4
+			jeq ones_1
+			cmp.b #03h, R4
+			jeq ones_2
+			cmp.b #04h, R4
+			jeq ones_3
+			cmp.b #05h, R4
+			jeq ones_4
+			cmp.b #06h, R4
+			jeq ones_5
+			cmp.b #07h, R4
+			jeq ones_6
+			cmp.b #08h, R4
+			jeq ones_7
+			cmp.b #09h, R4
+			jeq ones_8
+			cmp.b #0Ah, R4
+			jeq ones_9
+		nop
+
+ones_0:							;each function moves a value to the ones display register R6
+			mov.b #06h, R6
+			jmp res_count
+ones_1:
+			mov.b #5Bh, R6
+			jmp res_count
+ones_2:
+			mov.b #4Fh, R6
+			jmp res_count
+ones_3:
+			mov.b #66h, R6
+			jmp res_count
+ones_4:
+			mov.b #6Dh, R6
+			jmp res_count
+ones_5:
+			mov.b #7Ch, R6
+			jmp res_count
+ones_6:
+			mov.b #07h, R6
+			jmp res_count
+ones_7:
+			mov.b #7Fh, R6
+			jmp res_count
+ones_8:
+			mov.b #67h, R6
+			jmp res_count
+ones_9:							;when going from 9-->0 and update tens place
+			mov.b #00h, R4		;set value of ones place to 0
+			mov.b #3Fh, R6		;move 0 7-seg value to ones place
+			jmp count_tens		;goto count tens
+		nop
+
+count_tens:						;track tens place
+		inc R5					;increment hex value for count tens place
+			cmp.b #01h, R5		;each flags to compare the current hex value and jumps to a function that moves the new value in
+			jeq tens_0
+			cmp.b #02h, R5
+			jeq tens_1
+			cmp.b #03h, R5
+			jeq tens_2
+			cmp.b #04h, R5
+			jeq tens_3
+			cmp.b #05h, R5
+			jeq tens_4
+			cmp.b #06h, R5
+			jeq tens_5
+		nop
+tens_0:							;each function moves a value to the tens display register R7
+			mov.b #06h, R7
+			jmp res_count
+tens_1:
+			mov.b #5Bh, R7
+			jmp res_count
+tens_2:
+			mov.b #4Fh, R7
+			jmp res_count
+tens_3:
+			mov.b #66h, R7
+			jmp res_count
+tens_4:
+			mov.b #6Dh, R7
+			jmp res_count
+		nop
+tens_5:
+			mov.b #00h, R5
+			mov.b #3Fh, R7
+			jmp res_count
+		nop
+
+res_count:
+			bic.b #BIT1, R8
+			jmp main
+		nop
+
+;-------------------------------------------------------------------------------
+; Stack Pointer definition
+;-------------------------------------------------------------------------------
+            .global __STACK_END
+            .sect   .stack
+
+;-------------------------------------------------------------------------------
+; Interrupt Vectors
+;-------------------------------------------------------------------------------
+            .sect   ".reset"                ; MSP430 RESET Vector
+            .short  RESET
+
+			.sect ".int42"
+			.short ISR_TB0
