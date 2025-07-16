@@ -1,0 +1,48 @@
+#include <SoftwareSerial.h>
+
+SoftwareSerial btSerial(10, 11); // RX, TX
+
+String inputString = "";
+unsigned long lastReceiveTime = 0;
+const unsigned long timeout = 100; // ms
+
+void setup() {
+  Serial.begin(9600);
+  btSerial.begin(9600);
+  Serial.println("Bluetooth Serial Echo Ready");
+  pinMode(7, OUTPUT);
+  digitalWrite(7, LOW);
+}
+
+void loop() {
+  while (btSerial.available()) {
+    char c = btSerial.read();
+    Serial.write(c);
+    inputString += c;
+    lastReceiveTime = millis();
+  }
+
+  // If some data was received and no new data for timeout period, process command
+  if (inputString.length() > 0 && (millis() - lastReceiveTime) > timeout) {
+    inputString.trim();
+
+    if (inputString.equalsIgnoreCase("on")) {
+      digitalWrite(7, HIGH);
+      Serial.println(" -> Pin 7 HIGH");
+    } else if (inputString.equalsIgnoreCase("off")) {
+      digitalWrite(7, LOW);
+      Serial.println(" -> Pin 7 LOW");
+    } else {
+      Serial.print(" -> Unknown command: ");
+      Serial.println(inputString);
+    }
+
+    inputString = ""; // clear buffer after processing
+  }
+
+  // Optional: echo serial monitor input back to BT
+  if (Serial.available()) {
+    char c = Serial.read();
+    btSerial.write(c);
+  }
+}
