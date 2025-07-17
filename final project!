@@ -1,0 +1,111 @@
+#include <msp430.h>
+#include "LiquidCrystal_I2C.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+#define STATE_PIN     BIT6  // e.g., P4.6 is STATE from HC-05
+#define MOTOR_PWM_ON  655   // 100% duty (adjust as needed)
+#define MOTOR_PWM_OFF 0
+
+volatile unsigned int pwm_duty = 0;
+
+void init_LCD() {
+    I2C_Init(0x27);
+    LCD_Setup();
+    LCD_ClearDisplay();
+}
+
+void init_UART() {
+    // UART from Professor
+    UCA0CTLW0 |= UCSWRST;
+    UCA0CTLW0 |= UCSSEL__ACLK;
+    UCA0BRW = 3;
+    UCA0MCTLW = 0x9200;
+    P1SEL1 &= ~BIT6;
+    P1SEL0 |= BIT6;      // UART on P1.6 (RX)
+    // LED on P1.0
+    P1DIR |= BIT0;
+    P1OUT &= ~BIT0;
+    // End of UART
+    PM5CTL0 &= ~LOCKLPM5;
+    UCA0CTLW0 &= ~UCSWRST;
+    UCA0IE |= UCRXIE;
+}
+
+void init_PWM() {
+    P6DIR |= BIT1;               // P6.1 output
+    P6SEL0 |= BIT1;              // Timer3_B.2
+    TB3CCR0 = 655;
+    TB3CCTL2 = OUTMOD_7;
+    TB3CCR2 = MOTOR_PWM_OFF;
+    TB3CTL = TBSSEL_1 | MC_1 | TBCLR;  // ACLK, up mode
+}
+
+void init_state_pin() {
+    P4DIR &= ~STATE_PIN;     // Input
+    P4REN |= STATE_PIN;      // Enable pull resistor
+    P4OUT |= STATE_PIN;      // Pull-up
+}
+
+void DelayMs(unsigned int Ms);
+
+int main(void) {
+    WDTCTL = WDTPW | WDTHOLD;
+    init_UART();
+    __enable_interrupt();
+    init_LCD();
+    init_PWM();
+    init_state_pin();
+
+
+    while (1) {
+        unsigned int current_state = (P4IN & STATE_PIN) ? 1 : 0;
+        LCD_ClearDisplay();
+        LCD_SetCursor(0, 0);
+        if (current_state) {
+            TB3CCR2 = (pwm_duty * 655) / 100;; // Scale to match 0–655
+            char buf[16];
+            snprintf(buf, sizeof(buf), "Speed:%d%%", pwm_duty);
+            LCD_Write(buf);
+        }else{
+            LCD_Write("No Signal");
+            TB3CCR2 = 0;
+        }
+        DelayMs(1000);
+    }
+}
+
+void DelayMs(unsigned int Ms) {
+    while(Ms--) {
+        __delay_cycles(1000);
+    }
+}
+
+#pragma vector=USCI_A0_VECTOR
+__interrupt void USCI_A0_ISR(void) {
+    static uint16_t accum = 0;
+    static uint8_t digits = 0;
+    switch (__even_in_range(UCA0IV, USCI_UART_UCTXCPTIFG)){
+    case USCI_UART_UCRXIFG:{
+        char c = UCA0RXBUF;
+        if (c >= '0' && c <= '9'){
+            if (digits < 3){
+                accum = accum * 10 + (c - '0');
+                digits++;
+            }
+        }
+        else if (c == '\r'){
+            if (accum > 100) accum = 100;
+            pwm_duty = (uint8_t)accum;
+            accum = 0;
+            digits = 0;
+        }else{
+            accum = 0;
+            digits = 0;
+        }
+        break;
+    }
+    default: break;
+    }
+}
