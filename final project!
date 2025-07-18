@@ -4,105 +4,103 @@
 #include <string.h>
 #include <stdint.h>
 
-#define STATE_PIN     BIT6  // e.g., P4.6 is STATE from HC-05
-#define MOTOR_PWM_ON  655   // 100% duty (adjust as needed)
-#define MOTOR_PWM_OFF 0
+volatile unsigned int pwm_duty = 0; // changeable global variable for motor and display (Speed %)
+volatile unsigned int data_update = 0;       // checks if an interrupt has occurred in main
+volatile unsigned int accum = 0;    // calculates new accum input and returns from interrupt
+volatile unsigned int error = 0;
+volatile unsigned int digits = 0;
 
-volatile unsigned int pwm_duty = 0;
-
-void init_LCD() {
-    I2C_Init(0x27);
+void init_LCD() {                   // Init LCD
+    I2C_Init(0x27);                 // Call functions
     LCD_Setup();
     LCD_ClearDisplay();
 }
 
-void init_UART() {
+void init_UART() {                  // Init UART
     // UART from Professor
-    UCA0CTLW0 |= UCSWRST;
-    UCA0CTLW0 |= UCSSEL__ACLK;
-    UCA0BRW = 3;
+    UCA0CTLW0 |= UCSWRST;           // Put eUSCI in reset
+    UCA0CTLW0 |= UCSSEL__ACLK;      // Select Clock
+    UCA0BRW = 3;                    // Set Baud Rate
     UCA0MCTLW = 0x9200;
-    P1SEL1 &= ~BIT6;
-    P1SEL0 |= BIT6;      // UART on P1.6 (RX)
-    // LED on P1.0
-    P1DIR |= BIT0;
+    P1SEL1 &= ~BIT6;                // UART Config for RX at P1.6
+    P1SEL0 |= BIT6;
+    P1DIR |= BIT0;                  // Enable LED 1.0
     P1OUT &= ~BIT0;
-    // End of UART
-    PM5CTL0 &= ~LOCKLPM5;
-    UCA0CTLW0 &= ~UCSWRST;
-    UCA0IE |= UCRXIE;
+    PM5CTL0 &= ~LOCKLPM5;           // Disable the GPIO power-on default high-impedance mode
+    UCA0CTLW0 &= ~UCSWRST;          // Initialize eUSCI
+    UCA0IE |= UCRXIE;               // Set Interrupt for UART RX signal
 }
 
-void init_PWM() {
-    P6DIR |= BIT1;               // P6.1 output
-    P6SEL0 |= BIT1;              // Timer3_B.2
-    TB3CCR0 = 655;
-    TB3CCTL2 = OUTMOD_7;
-    TB3CCR2 = MOTOR_PWM_OFF;
-    TB3CTL = TBSSEL_1 | MC_1 | TBCLR;  // ACLK, up mode
+void init_PWM() {                   // Init PWM
+    P6DIR |= BIT1;                  // Set PWM output at P6.1
+    P6SEL0 |= BIT1;
+    TB3CCR0 = 655;                      // PWM Clock Period
+    TB3CCTL2 = OUTMOD_7;                // CCR2 reset/set
+    TB3CCR2 = 0;                        // CCR2 PWM duty cycle
+    TB3CTL = TBSSEL_1 | MC_1 | TBCLR;   // ACLK, up mode
 }
 
-void init_state_pin() {
-    P4DIR &= ~STATE_PIN;     // Input
-    P4REN |= STATE_PIN;      // Enable pull resistor
-    P4OUT |= STATE_PIN;      // Pull-up
+void init_state_pin() {             // Set State Pin for HC-05 at P4.6
+    P4DIR &= ~BIT6;                 // Input
+    P4REN |= BIT6;                  // Enable pull resistor
+    P4OUT |= BIT6;                  // Pull-up
 }
 
-void DelayMs(unsigned int Ms);
-
-int main(void) {
-    WDTCTL = WDTPW | WDTHOLD;
-    init_UART();
-    __enable_interrupt();
-    init_LCD();
-    init_PWM();
-    init_state_pin();
-
-
-    while (1) {
-        unsigned int current_state = (P4IN & STATE_PIN) ? 1 : 0;
-        LCD_ClearDisplay();
-        LCD_SetCursor(0, 0);
-        if (current_state) {
-            TB3CCR2 = (pwm_duty * 655) / 100;; // Scale to match 0–655
-            char buf[16];
-            snprintf(buf, sizeof(buf), "Speed:%d%%", pwm_duty);
-            LCD_Write(buf);
-        }else{
-            LCD_Write("No Signal");
-            TB3CCR2 = 0;
-        }
-        DelayMs(1000);
-    }
-}
-
-void DelayMs(unsigned int Ms) {
+void DelayMs(unsigned int Ms) {     // Write Delay function for delay in MS
     while(Ms--) {
         __delay_cycles(1000);
     }
 }
 
-#pragma vector=USCI_A0_VECTOR
+int main(void) {                    // Main Function
+    WDTCTL = WDTPW | WDTHOLD;       // Stop WDT
+    init_UART();                    // Call UART init
+    __enable_interrupt();           // Enable Interrupt
+    init_LCD();                     // Call LCD init
+    init_PWM();                     // Call PWM init
+    init_state_pin();               // Call state init
+
+    while (1) {                     // Main Closed Loop
+        unsigned int current_state = (P4IN & BIT6) ? 1 : 0;         // Check Bluetooth Connection
+        LCD_ClearDisplay();                                         // Reset Screen Display
+        LCD_SetCursor(0, 0);                                        // Move Cursor to 0,0
+        if (current_state) {                                        // If >Bluetooth enabled<
+            TB3CCR2 = (pwm_duty * 655) / 100;;                          // Set >Motor< to % speed and match 0–655
+            char buf[16];                                               // Define Buffer size
+            snprintf(buf, sizeof(buf), "Speed:%d%%", pwm_duty);         // Print Buffer to show speed
+            LCD_Write(buf);                                             // Write print to LCD
+        }else{                                                      // If >Bluetooth disabled<
+            LCD_Write("No Signal");                                     // Display no connection at LCD
+            TB3CCR2 = 0;                                                // Set >Motor< to 0
+        }
+        //__bis_SR_register(LPM0_bits);
+        DelayMs(1000);                                              // Delay Repeating Main Closed Loop
+    }
+}
+
+#pragma vector=USCI_A0_VECTOR                                       // Define interrupt vector for UART RX
 __interrupt void USCI_A0_ISR(void) {
-    static uint16_t accum = 0;
-    static uint8_t digits = 0;
-    switch (__even_in_range(UCA0IV, USCI_UART_UCTXCPTIFG)){
-    case USCI_UART_UCRXIFG:{
-        char c = UCA0RXBUF;
-        if (c >= '0' && c <= '9'){
-            if (digits < 3){
-                accum = accum * 10 + (c - '0');
-                digits++;
+    static uint16_t accum = 0;                                      // Accumulate Input and persist
+    static uint8_t digits = 0;                                      // Accumulate Digit and persist
+    switch (__even_in_range(UCA0IV, USCI_UART_UCTXCPTIFG)){         // Check which UART interrupt occurred
+    case USCI_UART_UCRXIFG:{                                        // If UART is Interrupt
+        char c = UCA0RXBUF;                                         // Read value to 'c'
+        if (c >= '0' && c <= '9'){                                  // If 'c' is meaningful ascii 0-9
+            if (digits < 3){                                        // If number of digits is less than 3
+                accum = accum * 10 + (c - '0');                     // Adjust Accum
+                digits++;                                           // Increment Digits
             }
         }
-        else if (c == '\r'){
-            if (accum > 100) accum = 100;
-            pwm_duty = (uint8_t)accum;
-            accum = 0;
-            digits = 0;
-        }else{
-            accum = 0;
-            digits = 0;
+        else if (c == '\r'){                                        // If UART is End Transmission
+            if (accum > 100){                                       // Check Accum range
+                accum = 100;                                        // Set Max Value
+            }
+            pwm_duty = (uint8_t)accum;                              // Set PWM to the value in accum
+            accum = 0;                                              // reset accum
+            digits = 0;                                             // reset digits
+        }else{                                                      // If UART is ELSE
+            accum = 0;                                              // reset accum
+            digits = 0;                                             // reset digits
         }
         break;
     }
